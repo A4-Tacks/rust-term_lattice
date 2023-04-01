@@ -550,7 +550,7 @@ mod screen_buffer_test {
         assert_eq!(a.get_pos_text([0, 0]).unwrap(), format!("{b}▄"));
         let mut b = ANSIColor::new();
         b.add([0]);
-        assert_eq!(a.get_pos_text([1, 0]).unwrap(), format!("{b}▄"));
+        assert_eq!(a.get_pos_text([1, 0]).unwrap(), format!("{b}{EMPTY}"));
     }
 
     #[test]
