@@ -1,0 +1,16 @@
+[package]
+name = "term_lattice"
+version = "0.1.0"
+edition = "2021"
+
+license = "MIT"
+description = "Used to use ANSI output dot matrix drawing boards on terminals that support VT100. Due to the use of incremental output, it is very fast."
+homepage = ""
+repository = ""
+readme = "./README.md"
+keywords = ["terminal", "tui", "draw", "plot", "ansi_term"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+enum_variant_eq = "0.1.0"
