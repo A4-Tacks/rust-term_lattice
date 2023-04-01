@@ -17,6 +17,7 @@ use enum_variant_eq::{
 pub mod consts {
     pub const ESC: char = '\x1b';
     pub const UNIT_COLOR_CHARS: usize = 18; // 平均一个颜色所消耗字符
+    pub const EMPTY: char = ' ';
 }
 use consts::*;
 
@@ -439,6 +440,12 @@ impl ScreenBuffer {
         if bcolor_sim_bg && fcolor_sim_bg {
             return None; // skip this char
         }
+        let char: char
+            = if is_pat!(bcolor, Color::None) && is_pat!(fcolor, Color::None) {
+            EMPTY
+        } else {
+            self.cfg.half
+        };
         let mut prev_color = self.prev_color.borrow_mut();
         let mut res = ANSIColor::new();
         let (bsimp, fsimp) /* 是否与上一个颜色相似 */
@@ -460,7 +467,7 @@ impl ScreenBuffer {
         } else {
             prev_color[1]
         };
-        Some(format!("{res}{}", self.cfg.half))
+        Some(format!("{res}{char}"))
     }
     /// Gets the string used to render the output.
     /// You must leave enough lines under the cursor before outputting
@@ -560,8 +567,14 @@ mod screen_buffer_test {
         for i in 0..n {
             a.set([(12 + i) / 8, i], Color::C256((i & 0xff) as u8));
             a.set([i, (12 + i) / 8], Color::C256((i & 0xff) as u8));
-            println!("\x1b[H{}", a.flush(true));
+            print!("\x1b[H{}", a.flush(true));
             //println!("{:?}", a.flush());
+        }
+        for i in 0..n >> 1 {
+            for j in 0..n {
+                a.set([j, i], Color::None);
+                print!("\x1b[H{}", a.flush(true));
+            }
         }
         let mut i: f64 = 0.0;
         let mut j = 0;
@@ -571,11 +584,11 @@ mod screen_buffer_test {
                 [((i.cos() * 0.5) * n1 + n1) as u32,
                     ((i.sin() * 0.5) * n1 + n1) as u32],
                 Color::C256(j));
-            println!("\x1b[H{}", a.flush(true));
+            print!("\x1b[H{}", a.flush(true));
             i += 0.025;
             j += 1;
         }
-        println!("\x1b[H{}", a.flush(false));
+        print!("\x1b[H{}", a.flush(false));
         let s = ScreenBuffer::new([0, 0]).flush(true);
         assert_eq!(s, String::from(""));
     }
