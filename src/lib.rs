@@ -8,10 +8,6 @@ use std::{
         RefMut, Ref,
     },
 };
-use enum_variant_eq::{
-    EnumVariantEq,
-    enum_variant_eq_derive::*,
-};
 
 
 pub mod consts {
@@ -50,6 +46,9 @@ pub mod traits {
                 self.push(target.clone())
             }
         }
+    }
+    pub trait EnumVariantEq {
+        fn enum_variant_eq(&self, other: &Self) -> bool;
     }
 }
 use traits::*;
@@ -93,6 +92,13 @@ macro_rules! no_init_var {
 }
 
 /// Configurator used to configure its behavior
+/// # Examples
+/// ```
+/// # use term_lattice::Config;
+/// let mut cfg = Config::new();
+/// cfg.chromatic_aberration = 1;
+/// // pass
+/// ```
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Config {
     /// Standard Half Height Characters
@@ -334,7 +340,7 @@ mod ansi_colors_tests {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumVariantEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Color {
     Rgb(Rgb),
     C256(u8),
@@ -434,6 +440,36 @@ impl Default for Color {
     /// ```
     fn default() -> Self {
         Self::None
+    }
+}
+impl EnumVariantEq for Color {
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{Color,traits::EnumVariantEq};
+    /// assert!(Color::None.enum_variant_eq(&Color::None));
+    /// assert!(Color::C256(39).enum_variant_eq(&Color::C256(78)));
+    /// assert!(Color::Rgb([89; 3]).enum_variant_eq(&Color::Rgb([23; 3])));
+    /// assert!(Color::C256(39).enum_variant_eq(&Color::C256(39)));
+    /// assert!(! Color::C256(8).enum_variant_eq(&Color::None));
+    /// assert!(! Color::None.enum_variant_eq(&Color::C256(23)));
+    /// assert!(! Color::Rgb([89; 3]).enum_variant_eq(&Color::C256(87)));
+    /// assert!(! Color::C256(8).enum_variant_eq(&Color::Rgb([53; 3])));
+    /// ```
+    fn enum_variant_eq(&self, other: &Self) -> bool {
+        macro_rules! matcher {
+            ( $( $pat:pat ),+ $(,)? ) => {
+                match self {
+                    $(
+                        $pat => is_pat!(other, $pat),
+                    )+
+                }
+            };
+        }
+        matcher!(
+            Self::Rgb(..),
+            Self::C256(..),
+            Self::None,
+        )
     }
 }
 
@@ -729,6 +765,32 @@ impl ScreenBuffer {
         debug_assert_eq!(res.capacity(), res_cap);
         res
     }
+    /// Get a borrow of the color buffer
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{ScreenBuffer,Color};
+    /// let a = ScreenBuffer::new([2, 2]);
+    /// a.set([0, 1], Color::C256(39));
+    /// let b = a.get_colors_borrow().clone();
+    /// assert_eq!(
+    ///     b, vec![Color::None, Color::None, Color::C256(39), Color::None]);
+    /// ```
+    pub fn get_colors_borrow(&self) -> Ref<Vec<Color>> {
+        self.colors.borrow()
+    }
+    /// Get a borrow of the background_colors buffer
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{ScreenBuffer,Color};
+    /// let a = ScreenBuffer::new([2, 2]);
+    /// a.set([0, 1], Color::C256(39));
+    /// assert_eq!(a.get_bg_colors_borrow()[2], Color::None);
+    /// a.flush(false);
+    /// assert_eq!(a.get_bg_colors_borrow()[2], Color::C256(39));
+    /// ```
+    pub fn get_bg_colors_borrow(&self) -> Ref<Vec<Color>> {
+        self.background_colors.borrow()
+    }
 }
 impl Default for ScreenBuffer {
     /// # Examples
@@ -762,7 +824,66 @@ impl PartialEq for ScreenBuffer {
             && self.colors == other.colors
     }
 }
-
+impl Into<Vec<Color>> for ScreenBuffer {
+    /// Into colors.
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{ScreenBuffer,Color};
+    /// let a = ScreenBuffer::new([2, 2]);
+    /// a.set([0, 1], Color::C256(39));
+    /// let b: Vec<Color> = a.into();
+    /// assert_eq!(
+    ///     b, vec![Color::None, Color::None, Color::C256(39), Color::None]);
+    /// ```
+    fn into(self) -> Vec<Color> {
+        self.colors.into_inner()
+    }
+}
+impl<T> From<(Position, Config, T)> for ScreenBuffer
+    where T: Iterator<Item = Color>
+{
+    /// From (size, cfg, iter)
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{ScreenBuffer,Color,Config};
+    /// let a = ScreenBuffer::from((
+    ///     [2, 2],
+    ///     Config::new(),
+    ///     vec![Color::None, Color::C256(39)].into_iter(),
+    /// ));
+    /// let b: Vec<Color> = a.into();
+    /// assert_eq!(
+    ///     b, vec![Color::None, Color::C256(39), Color::None, Color::None]);
+    /// ```
+    fn from(value: (Position, Config, T)) -> Self {
+        let res = Self::new_from_cfg(value.0, value.1);
+        let mut i = 0;
+        for color in value.2 {
+            res.set_idx(i, color);
+            i += 1;
+        }
+        res
+    }
+}
+impl<T> From<(Position, T)> for ScreenBuffer
+    where T: Iterator<Item = Color>
+{
+    /// From (size, iter)
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{ScreenBuffer,Color,Config};
+    /// let a = ScreenBuffer::from((
+    ///     [2, 2],
+    ///     vec![Color::None, Color::C256(39)].into_iter(),
+    /// ));
+    /// let b: Vec<Color> = a.into();
+    /// assert_eq!(
+    ///     b, vec![Color::None, Color::C256(39), Color::None, Color::None]);
+    /// ```
+    fn from(value: (Position, T)) -> Self {
+        Self::from((value.0, Config::default(), value.1))
+    }
+}
 
 
 #[cfg(test)]

@@ -1,6 +1,6 @@
 [package]
 name = "term_lattice"
-version = "0.3.0"
+version = "0.4.0"
 edition = "2021"
 
 license = "MIT"
@@ -13,7 +13,6 @@ keywords = ["terminal", "tui", "draw", "plot", "ansi_term"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-enum_variant_eq = "0.1.0"
 
 [profile.dev]
 opt-level = 1
