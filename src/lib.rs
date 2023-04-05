@@ -5,7 +5,7 @@ use std::{
     },
     cell::{
         RefCell,
-        RefMut,
+        RefMut, Ref,
     },
 };
 use enum_variant_eq::{
@@ -470,12 +470,12 @@ mod color_test {
 /// ```
 #[derive(Clone, Debug)]
 pub struct ScreenBuffer {
-    pub colors: RefCell<Vec<Color>>,
+    colors: RefCell<Vec<Color>>,
     /// Colors present in the output area
-    pub background_colors: RefCell<Vec<Color>>,
+    background_colors: RefCell<Vec<Color>>,
     /// The value of this field should be the color of the last change.
     /// Subscript 0 is the background color, and subscript 1 is the foreground color
-    pub prev_color: RefCell<[Color; 2]>,
+    prev_color: RefCell<[Color; 2]>,
     size: Position,
     /// config
     pub cfg: Config,
@@ -591,6 +591,14 @@ impl ScreenBuffer {
     /// Initialize the current color buffer
     pub fn init_prev_color(&self) {
         *self.prev_color.borrow_mut() = [Color::None; 2];
+    }
+    /// get prev_color ref
+    pub fn get_prev_color(&self) -> Ref<[Color; 2]> {
+        self.prev_color.borrow()
+    }
+    /// get prev_color mut ref
+    pub fn get_prev_color_mut(&self) -> RefMut<[Color; 2]> {
+        self.prev_color.borrow_mut()
     }
     /// 两颜色在此缓冲区是否判定为相似
     fn color_similarity(&self, color1: &Color, color2: &Color) -> bool {

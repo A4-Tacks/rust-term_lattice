@@ -7,3 +7,6 @@ Modified failed but reasonable assertions
 
 # v0.2.0
 Modified some display sections, added some practical methods, and adjusted the visibility of some fields.
+
+# v0.3.0
+Revised the visibility of some fields again and added some methods
