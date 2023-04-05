@@ -5,8 +5,8 @@ Used to use ANSI output dot matrix drawing boards on terminals that support VT10
 - crate: <https://crates.io/crates/term_lattice>
 
 # Presentation Effects
-![01 from github](https://github.com/A4-Tacks/rust-term_lattice/blob/main/Examples/Examples1.png)
-![02 from github](https://github.com/A4-Tacks/rust-term_lattice/blob/main/Examples/Examples2.png)
+![01 from github](https://raw.githubusercontent.com/A4-Tacks/rust-term_lattice/main/Examples/Examples1.png)
+![02 from github](https://raw.githubusercontent.com/A4-Tacks/rust-term_lattice/main/Examples/Examples2.png)
 
 Create a new color lattice at a fixed location and use incremental output to quickly refresh.
 
