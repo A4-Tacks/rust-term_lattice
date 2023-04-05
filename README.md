@@ -1,14 +1,14 @@
 Used to use ANSI output dot matrix drawing boards on terminals that support VT100. Due to the use of incremental output, it is very fast.
 - Supports true color and 256 colors
 
+## Info
+- crate: <https://crates.io/crates/term_lattice>
+
 # Presentation Effects
 ![01 from github](https://github.com/A4-Tacks/rust-term_lattice/blob/main/Examples/Examples1.png)
 ![02 from github](https://github.com/A4-Tacks/rust-term_lattice/blob/main/Examples/Examples2.png)
 
 Create a new color lattice at a fixed location and use incremental output to quickly refresh.
-
-## Info
-- crate: <https://crates.io/crates/term_lattice>
 
 # Examples
 ```rust
