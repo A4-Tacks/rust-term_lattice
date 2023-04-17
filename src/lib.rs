@@ -206,7 +206,6 @@ impl ANSICursorControl {
     pub fn sub(&mut self) {
         self.subn(1)
     }
-    #[allow(unused)]
     pub fn subn(&mut self, num: u16) {
         debug_assert!(self.len >= num);
         self.len -= num
@@ -282,29 +281,121 @@ impl<T> From<T> for ANSIColors
 }
 impl Display for ANSIColors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        fn func(a: u8, b: u8) -> bool {
-            const EMPTY: (u8, u8) = (39, 49);
-            (a, b) == EMPTY || (b, a) == EMPTY
-        }
         let len = self.colors.len();
-        let res = if len != 0 {
-            let x = if self.colors[len - 1] == 0
-                || (len >= 2 && func(
-                        self.colors[len - 1], self.colors[len - 2])) {
-                "0".to_string()
+        write!(f, "{}", if len == 0 { String::new() } else {
+            let mut iter = self.colors.iter();
+            let [mut bnone, mut fnone] = [false; 2];
+            let [mut bgs, mut fgs] = [[0u8; 5]; 2];
+            let [mut bgc, mut fgc] = [0usize; 2];
+            macro_rules! err {
+                () => {
+                    panic!(
+                        "color format error: {:?}", self.colors)
+                };
+                ( $( $x:expr ),* ) => {
+                    panic!(
+                        "color format error: {:?} ({})",
+                        self.colors, format!( $( $x ),* ))
+                };
+            }
+            macro_rules! next {
+                () => {
+                    iter.next()
+                        .unwrap_or_else(
+                            || err!("next to end"))
+                };
+            }
+            // 将每种颜色情况分析 如果全部重置则重置为0
+            loop {
+                if let Some(x) = iter.next() {
+                    match *x {
+                        0 => [bnone, fnone] = [true; 2],
+                        39 => {
+                            fgc = 0;
+                            fnone = true;
+                        },
+                        49 => {
+                            bgc = 0;
+                            bnone = true;
+                        },
+                        38 => {
+                            fnone = false;
+                            match *next!()
+                            {
+                                y @ 2 => {
+                                    fgs[0] = *x;
+                                    fgs[1] = y;
+                                    for i in 2..5 {
+                                        fgs[i] = *next!();
+                                    }
+                                    fgc = 5;
+                                },
+                                y @ 5 => {
+                                    fgs[0] = *x;
+                                    fgs[1] = y;
+                                    fgs[2] = *next!();
+                                    fgc = 3;
+                                },
+                                _ => err!(),
+                            }
+                        },
+                        48 => {
+                            bnone = false;
+                            match *next!()
+                            {
+                                y @ 2 => {
+                                    bgs[0] = *x;
+                                    bgs[1] = y;
+                                    for i in 2..5 {
+                                        bgs[i] = *next!();
+                                    }
+                                    bgc = 5;
+                                },
+                                y @ 5 => {
+                                    bgs[0] = *x;
+                                    bgs[1] = y;
+                                    bgs[2] = *next!();
+                                    bgc = 3;
+                                },
+                                _ => err!(),
+                            }
+                        },
+                        n @ (30..=37 | 90..=97) => {
+                            fnone = false;
+                            fgs[0] = n;
+                            fgc = 1;
+                        },
+                        n @ (40..=47 | 100..=107) => {
+                            bnone = false;
+                            bgs[0] = n;
+                            bgc = 1;
+                        },
+                        e => err!("e:{}", e),
+                    }
+                } else {
+                    break;
+                }
+            }
+            macro_rules! join {
+                ( $x:expr ) => {
+                    ($x).into_iter().map(|x| format!("{}", x)).collect::<Vec<_>>().join(";")
+                };
+            }
+            if bnone && fnone {
+                format!("{}[0m", ESC)
+            } else if bgc == 0 && fgc == 0 {
+                format!("")
             } else {
-                self.colors.iter()
-                    .map(|x| x.to_string())
-                    .collect::<Vec<String>>().join(";")
-            };
-            format!("{ESC}[{}m", x)
-        } else { /* empty */ "".to_string() };
-        write!(f, "{res}")
+                format!("{}[{}m", ESC,
+                        join!(bgs[0..bgc].into_iter()
+                              .chain(fgs[0..fgc].into_iter())))
+            }
+        })
     }
 }
 #[cfg(test)]
 mod ansi_colors_tests {
-    use super::{ANSIColors,ESC};
+    use super::{ANSIColors,ESC,Color};
     #[test]
     fn new() {
         assert_eq!(ANSIColors::new(), ANSIColors { colors: Vec::new() });
@@ -323,8 +414,8 @@ mod ansi_colors_tests {
     #[test]
     fn fmt() {
         let mut a = ANSIColors::new();
-        a.add([1, 2, 4]);
-        assert_eq!(format!("{a}"), format!("{ESC}[1;2;4m"));
+        a.add([31, 42, 36]);
+        assert_eq!(format!("{a}"), format!("{ESC}[42;36m"));
         assert_eq!(format!("{}", ANSIColors::new()), String::new());
 
         let mut a = ANSIColors::new();
@@ -334,8 +425,25 @@ mod ansi_colors_tests {
         a.add([39, 49]);
         assert_eq!(format!("{a}"), format!("{ESC}[0m"));
         let mut a = ANSIColors::new();
-        a.add([8, 39, 49]);
+        a.add([32, 39, 49]);
         assert_eq!(format!("{a}"), format!("{ESC}[0m"));
+        let mut a = ANSIColors::new();
+        a.add(Color::Rgb([0, 1, 2]).to_ansi(false));
+        assert_eq!(format!("{a}"), format!("{ESC}[38;2;0;1;2m"));
+
+        let mut a = ANSIColors::new();
+        a.add(Color::Rgb([255, 39, 0]).to_ansi(false));
+        assert_eq!(format!("{a}"), format!("{ESC}[38;2;255;39;0m"));
+        a.add(Color::Rgb([255, 39, 0]).to_ansi(true));
+        assert_eq!(format!("{a}"), format!("{ESC}[48;2;255;39;0;38;2;255;39;0m"));
+        a.add(Color::None.to_ansi(false));
+        assert_eq!(format!("{a}"), format!("{ESC}[48;2;255;39;0m"));
+        a.add(Color::None.to_ansi(true));
+        assert_eq!(format!("{a}"), format!("{ESC}[0m"));
+        a.add(Color::C256(72).to_ansi(true));
+        assert_eq!(format!("{a}"), format!("{ESC}[48;5;72m"));
+        a.add(Color::C256(12).to_ansi(true));
+        assert_eq!(format!("{a}"), format!("{ESC}[104m"));
     }
 }
 
@@ -366,6 +474,10 @@ impl Color {
     /// let a = Color::Rgb([8, 18, 28]);
     /// assert_eq!(a.to_ansi(false), vec![38, 2, 8, 18, 28]);
     /// assert_eq!(a.to_ansi(true), vec![48, 2, 8, 18, 28]);
+    ///
+    /// let a = Color::Rgb([0; 3]);
+    /// assert_eq!(a.to_ansi(false), vec![38, 2, 0, 0, 0]);
+    /// assert_eq!(a.to_ansi(true), vec![48, 2, 0, 0, 0]);
     /// ```
     pub fn to_ansi(&self, is_background: bool) -> Vec<u8> {
         let head = if is_background { 48 } else { 38 };
@@ -414,7 +526,7 @@ impl Color {
             Self::Rgb(color) => {
                 type Num = i32;
                 macro_rules! sum {
-                    ( $a:expr $(, $x:expr)* ) => ( $a $(+ $x)* );
+                    ( $a:expr $(, $x:expr )* ) => ( $a $(+ $x )* );
                 }
                 macro_rules! fun {
                     ( $self:ident, $other:ident
@@ -708,17 +820,20 @@ impl ScreenBuffer {
     /// You can use discontinuous output to avoid changing the color
     /// between multiple outputs that can affect the output effect.
     pub fn flush(&self, is_continue: bool) -> String {
-        let width: SizeType = self.size[0];
-        let line_size: usize = width as usize * (
-            UNIT_COLOR_CHARS * 2 + self.cfg.half.len_utf8()) + 9;
-        let line_count = self.size[1];
-        let text_line_count = line_count >> 1;
-        let res_cap = line_size * (text_line_count + 1) as usize;
-        let mut downs = ANSICursorControl::from('B');
-        let mut skips = ANSICursorControl::from('C');
+        let res_cap = self.get_output_string_size();
         let mut res: String
             = String::with_capacity(res_cap);
-        let mut backs = ANSICursorControl::from('D');
+        self.flush_to_string(is_continue, &mut res);
+        debug_assert_eq!(res.capacity(), res_cap);
+        res
+    }
+    /// Same as `flush` , but output to the incoming string after clearing the incoming string
+    pub fn flush_to_string(&self, is_continue: bool, res: &mut String) {
+        let [width, height]: Position = self.size;
+        let line_size: usize = self.get_output_string_line_size();
+        let mut downs: ANSICursorControl = ANSICursorControl::from('B');
+        let mut skips: ANSICursorControl = ANSICursorControl::from('C');
+        let mut backs: ANSICursorControl = ANSICursorControl::from('D');
         let mut line_buf: String = String::with_capacity(line_size);
 
         macro_rules! add_empty_color {
@@ -734,7 +849,9 @@ impl ScreenBuffer {
             self.init_prev_color()
         }
 
-        for line_num in (0..line_count).step_by(2) {
+        res.clear(); // 清空传入字符串
+
+        for line_num in (0..height).step_by(2) {
             for column_num in 0..width {
                 if let Some(x) = self.get_pos_text([column_num, line_num]) {
                     if ! skips.is_empty() {
@@ -757,13 +874,22 @@ impl ScreenBuffer {
             downs.add();
             res.push_str(&line_buf);
             line_buf.clear();
+            debug_assert_eq!(line_buf.capacity(), line_size);
         }
         res.push_str(&downs.to_string());
         if ! is_continue {
             add_empty_color!();
         }
-        debug_assert_eq!(res.capacity(), res_cap);
-        res
+    }
+    /// Obtain the expected size of the string used for output. (Byte)
+    pub fn get_output_string_size(&self) -> usize {
+        let text_lines = (self.size[1] >> 1) as usize;
+        self.get_output_string_line_size() * text_lines
+    }
+    /// Obtain the expected size of a single line output string. (Byte)
+    pub fn get_output_string_line_size(&self) -> usize {
+        self.size[0] as usize * (
+            UNIT_COLOR_CHARS * 2 + self.cfg.half.len_utf8()) + 12
     }
     /// Get a borrow of the color buffer
     /// # Examples
@@ -855,6 +981,16 @@ impl<T> From<(Position, Config, T)> for ScreenBuffer
     /// assert_eq!(
     ///     b, vec![Color::None, Color::C256(39), Color::None, Color::None]);
     /// ```
+    /// ---
+    /// From Buffer
+    /// # Examples
+    /// ```
+    /// # use term_lattice::{ScreenBuffer,Color,Config};
+    /// let a = ScreenBuffer::default();
+    /// let b = ScreenBuffer::from((
+    ///     a.size(), a.cfg, a.get_colors_borrow().clone().into_iter()));
+    /// assert_eq!(a, b);
+    /// ```
     fn from(value: (Position, Config, T)) -> Self {
         let res = Self::new_from_cfg(value.0, value.1);
         let mut i = 0;
@@ -918,32 +1054,36 @@ mod screen_buffer_test {
         let mut cfg = Config::new();
         cfg.default_color = Color::C256(15);
         cfg.chromatic_aberration = 1;
-        let a = ScreenBuffer::new_from_cfg([n; 2], cfg);
+        let buf = ScreenBuffer::new_from_cfg([n; 2], cfg);
+        //let mut outstr: String = String::with_capacity(buf.get_output_string_size());
         macro_rules! out {
             ($mode:expr) => {
-                print!("\x1b[H\x1b[B  {}", a.flush($mode));
+                print!("\x1b[H\x1b[B  {}", buf.flush($mode));
+                //buf.flush_to_string($mode, &mut outstr);
+                //print!("\x1b[H\x1b[B  {outstr}");
             };
         }
         for i in 0..n >> 1 {
             for j in 0..n {
-                a.set([j, i], Color::None);
+                buf.set([i, j], Color::None);
+                buf.set([j, i], Color::None);
                 out!(true);
             }
         }
         for i in 0..n {
-            a.set([i; 2], Color::C256((i & 0xff) as u8));
+            buf.set([i; 2], Color::C256((i & 0xff) as u8));
             out!(true);
         }
         for i in 0..n {
-            a.set([(12 + i) / 8, i], Color::C256((i & 0xff) as u8));
-            a.set([i, (12 + i) / 8], Color::C256((i & 0xff) as u8));
+            buf.set([(12 + i) / 8, i], Color::C256((i & 0xff) as u8));
+            buf.set([i, (12 + i) / 8], Color::C256((i & 0xff) as u8));
             out!(true);
         }
         let mut i: f64 = 0.0;
         let mut j = 0;
         let n1 = (n >> 1) as f64;
         while i < 6.28 {
-            a.set(
+            buf.set(
                 [((i.cos() * 0.5) * n1 + n1) as SizeType,
                     ((i.sin() * 0.5) * n1 + n1) as SizeType],
                 Color::C256(j));
@@ -953,16 +1093,38 @@ mod screen_buffer_test {
         }
         out!(false);
         println!("\x1b[5A&&&");
-        a.init_rect_bg([0, n - 10], [3, 2]);
+        buf.init_rect_bg([0, n - 10], [3, 2]);
         out!(false);
-        a.fill_rect([8, 7], [22; 2], Color::C256(84));
+        buf.fill_rect([8, 7], [22; 2], Color::C256(84));
         out!(false);
-        //for i in (0..=255).step_by(4) {
-        //    a.fill(Color::C256(i));
-        //    out!(false);
-        //}
+        for i in 0..16 {
+            buf.fill(Color::C256(i));
+            out!(false);
+        }
+        for i in (16..=255).step_by(4) {
+            buf.fill(Color::C256(i));
+            out!(false);
+        }
         let s = ScreenBuffer::new([0, 0]).flush(true);
         assert_eq!(s, String::from(""));
+    }
+
+    #[test]
+    fn example() {
+        let n = 100;
+        let mut cfg = Config::new();
+        let text_lines = n as usize >> 1;
+        cfg.default_color = Color::C256(15);
+        cfg.default_color = Color::Rgb([0; 3]);
+        cfg.chromatic_aberration = 1;
+        let a = ScreenBuffer::new_from_cfg([n; 2], cfg);
+
+        print!("\x1b[s{}", "\n".repeat(text_lines + 1));
+
+        for i in 0..n {
+            a.set([i; 2], Color::C256((i & 0xff) as u8));
+            println!("\x1b[u{}", a.flush(false));
+        }
     }
 
     #[test]

@@ -15,3 +15,6 @@ Revised the visibility of some fields again and added some methods
 Added some useful methods, such as `get_colors_arrow` and `Into<Vec<Color>>`, to compensate for visibility changes in `self.colors`.
 Can be easily created from `Iterator` (such as the colors field of a buffer of the same size))
 Manually expand `EnumVariantEq` to reduce dependencies
+
+# v0.4.1
+Fixed a bug where the output color was changed during optimization of the serialization optimizer, and the serialization optimizer has been refactored
