@@ -1,7 +1,7 @@
 use std::{
     fmt::{
         self,
-        Display,
+        Display, Debug,
     },
     cell::{
         RefCell,
@@ -42,13 +42,41 @@ pub mod traits {
         /// assert_eq!(a.len(), a.capacity());
         /// ```
         fn fill_capacity(&mut self, target: T) {
-            for _ in 0..(self.capacity() - self.len()) {
-                self.push(target.clone())
-            }
+            self.resize(self.capacity(), target)
         }
     }
     pub trait EnumVariantEq {
         fn enum_variant_eq(&self, other: &Self) -> bool;
+    }
+    pub trait BitCtrl
+        where Self: Sized,
+              Self::Index: std::ops::Sub + ToOwned<Owned = Self::Index>,
+    {
+        type Index;
+        fn get_bit(&self, idx: Self::Index) -> bool;
+        fn write_true(&self, idx: Self::Index) -> Self;
+        fn write_false(&self, idx: Self::Index) -> Self;
+        fn write(&self, idx: Self::Index, val: bool) -> Self {
+            if val {
+                self.write_true(idx)
+            } else {
+                self.write_false(idx)
+            }
+        }
+    }
+    impl BitCtrl for u8 {
+        type Index = u8;
+        fn get_bit(&self, idx: Self::Index) -> bool {
+            self >> idx & 1 == 1
+        }
+        fn write_true(&self, idx: Self::Index) -> Self {
+            debug_assert!(idx < 8);
+            self | 1 << idx
+        }
+        fn write_false(&self, idx: Self::Index) -> Self {
+            debug_assert!(idx < 8);
+            self & !(1 << idx)
+        }
     }
 }
 use traits::*;
@@ -214,9 +242,9 @@ impl ANSICursorControl {
 impl Display for ANSICursorControl {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let res = match self.len {
-            0 => String::new(),
+            0 => return Ok(()),
             1 => format!("{ESC}[{}", self.direction),
-            _ => format!("{ESC}[{}{}", self.len, self.direction),
+            x => format!("{ESC}[{}{}", x, self.direction),
         };
         write!(f, "{res}")
     }
@@ -250,167 +278,151 @@ mod ansi_cursor_control_tests {
     }
 }
 
-
-/// 一个颜色序列
 #[derive(Clone, PartialEq, Eq, Debug)]
 struct ANSIColors {
-    pub colors: Vec<u8>,
+    /// (len, data)
+    bgs: (usize, [u8; 5]),
+    fgs: (usize, [u8; 5]),
 }
 impl ANSIColors {
     pub fn new() -> Self {
-        Self { colors: Vec::new() }
+        Self::default()
     }
-    #[allow(unused)]
-    pub fn with_capacity(capacity: usize) -> Self {
-        Self { colors: Vec::with_capacity(capacity) }
+    pub fn add<T>(&mut self, target: T)
+        where T: IntoIterator<Item = u8>
+    {
+        self.result_add(target).unwrap_or_else(|e| panic!("{}", e))
     }
-    pub fn add(&mut self, nums: impl IntoIterator<Item = u8>) {
-        for i in nums {
-            self.colors.push(i)
+    /// 一次性添加一个或多个完整的序列
+    pub fn result_add<T>(&mut self, target: T) -> Result<(), String>
+        where T: IntoIterator<Item = u8>
+    {
+        let mut iter = target.into_iter();
+        macro_rules! err {
+            ( $x:expr ) => {
+                return Err($x)
+            };
         }
+        macro_rules! next {
+            () => {
+                if let Some(x) = iter.next() { x } else {
+                    err!("Next to end.".to_string())
+                }
+            };
+        }
+        while let Some(i) = iter.next() {
+            match i {
+                0 => {
+                    // init all
+                    [self.bgs.0, self.fgs.0] = [1; 2];
+                    [self.bgs.1[0], self.fgs.1[0]] = [49, 39];
+                },
+
+                30..=37 | 90..=97 | 39 => {
+                    // fg color
+                    (self.fgs.0, self.fgs.1[0]) = (1, i)
+                },
+                40..=47 | 100..=107 | 49 => {
+                    // bg color
+                    (self.bgs.0, self.bgs.1[0]) = (1, i)
+                },
+                38 => {
+                    // 扩展
+                    match next!() {
+                        // rgb
+                        2 => (self.fgs.0, self.fgs.1)
+                            = (5, [38, 2, next!(), next!(), next!()]),
+                        5 => (self.fgs.0,
+                              [self.fgs.1[0], self.fgs.1[1], self.fgs.1[2]])
+                            = (3, [38, 5, next!()]),
+                        x => err!(format!("Unknown tag: {}", x)),
+                    }
+                },
+                48 => {
+                    // 扩展
+                    match next!() {
+                        // rgb
+                        2 => (self.bgs.0, self.bgs.1)
+                            = (5, [48, 2, next!(), next!(), next!()]),
+                        5 => (self.bgs.0,
+                              [self.bgs.1[0], self.bgs.1[1], self.bgs.1[2]])
+                            = (3, [48, 5, next!()]),
+                        x => err!(format!("Unknown tag: {}", x)),
+                    }
+                },
+                _ => err!("format error.".to_string()),
+            }
+        }
+        Ok(())
+    }
+    #[allow(dead_code)]
+    pub fn clear(&mut self) {
+        self.clear_bg();
+        self.clear_fg();
+    }
+    pub fn clear_bg(&mut self) {
+        self.bgs = (0, [0; 5])
+    }
+    pub fn clear_fg(&mut self) {
+        self.fgs = (0, [0; 5])
     }
 }
-impl<T> From<T> for ANSIColors 
-    where T: IntoIterator<Item = u8>
-{
-    fn from(x: T) -> Self {
-        let mut res = Self::new();
-        res.add(x);
-        res
+impl Default for ANSIColors {
+    fn default() -> Self {
+        Self {
+            bgs: (0, [0u8; 5]),
+            fgs: (0, [0u8; 5]),
+        }
     }
 }
 impl Display for ANSIColors {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let len = self.colors.len();
-        write!(f, "{}", if len == 0 { String::new() } else {
-            let mut iter = self.colors.iter();
-            let [mut bnone, mut fnone] = [false; 2];
-            let [mut bgs, mut fgs] = [[0u8; 5]; 2];
-            let [mut bgc, mut fgc] = [0usize; 2];
-            macro_rules! err {
-                () => {
-                    panic!(
-                        "color format error: {:?}", self.colors)
-                };
-                ( $( $x:expr ),* ) => {
-                    panic!(
-                        "color format error: {:?} ({})",
-                        self.colors, format!( $( $x ),* ))
-                };
+        if self.bgs.0 == 1 && self.fgs.0 == 1
+            && self.bgs.1[0] == 49 && self.fgs.1[0] == 39
+            {
+                return write!(f, "{}[0m", ESC);
             }
-            macro_rules! next {
-                () => {
-                    iter.next()
-                        .unwrap_or_else(
-                            || err!("next to end"))
-                };
-            }
-            // 将每种颜色情况分析 如果全部重置则重置为0
-            loop {
-                if let Some(x) = iter.next() {
-                    match *x {
-                        0 => [bnone, fnone] = [true; 2],
-                        39 => {
-                            fgc = 0;
-                            fnone = true;
-                        },
-                        49 => {
-                            bgc = 0;
-                            bnone = true;
-                        },
-                        38 => {
-                            fnone = false;
-                            match *next!()
-                            {
-                                y @ 2 => {
-                                    fgs[0] = *x;
-                                    fgs[1] = y;
-                                    for i in 2..5 {
-                                        fgs[i] = *next!();
-                                    }
-                                    fgc = 5;
-                                },
-                                y @ 5 => {
-                                    fgs[0] = *x;
-                                    fgs[1] = y;
-                                    fgs[2] = *next!();
-                                    fgc = 3;
-                                },
-                                _ => err!(),
-                            }
-                        },
-                        48 => {
-                            bnone = false;
-                            match *next!()
-                            {
-                                y @ 2 => {
-                                    bgs[0] = *x;
-                                    bgs[1] = y;
-                                    for i in 2..5 {
-                                        bgs[i] = *next!();
-                                    }
-                                    bgc = 5;
-                                },
-                                y @ 5 => {
-                                    bgs[0] = *x;
-                                    bgs[1] = y;
-                                    bgs[2] = *next!();
-                                    bgc = 3;
-                                },
-                                _ => err!(),
-                            }
-                        },
-                        n @ (30..=37 | 90..=97) => {
-                            fnone = false;
-                            fgs[0] = n;
-                            fgc = 1;
-                        },
-                        n @ (40..=47 | 100..=107) => {
-                            bnone = false;
-                            bgs[0] = n;
-                            bgc = 1;
-                        },
-                        e => err!("e:{}", e),
+        let [no_bg, no_fg]
+            = [self.bgs.0 == 0, self.fgs.0 == 0];
+        if no_fg && no_bg {
+            Ok(())
+        } else {
+            macro_rules! write_to_fmt {
+                ( $bg:expr, $fg:expr ) => {
+                    if no_fg {
+                        if no_bg {
+                            Ok(())
+                        } else {
+                            write!(f, "{}[{}m", ESC, $bg)
+                        }
+                    } else {
+                        if no_bg {
+                            write!(f, "{}[{}m", ESC, $fg)
+                        } else {
+                            write!(f, "{}[{};{}m", ESC, $bg, $fg)
+                        }
                     }
-                } else {
-                    break;
-                }
-            }
-            macro_rules! join {
-                ( $x:expr ) => {
-                    ($x).into_iter().map(|x| format!("{}", x)).collect::<Vec<_>>().join(";")
                 };
             }
-            if bnone && fnone {
-                format!("{}[0m", ESC)
-            } else if bgc == 0 && fgc == 0 {
-                format!("")
-            } else {
-                format!("{}[{}m", ESC,
-                        join!(bgs[0..bgc].into_iter()
-                              .chain(fgs[0..fgc].into_iter())))
+            macro_rules! get {
+                ( $t:expr ) => {
+                    ($t).1[0..($t).0]
+                        .into_iter()
+                        .map(to_string)
+                        .collect::<Vec<_>>().join(";")
+                };
             }
-        })
+            fn to_string<T: Display>(t: T) -> String {
+                t.to_string()
+            }
+            write_to_fmt!(get!(self.bgs), get!(self.fgs))
+        }
     }
 }
+
 #[cfg(test)]
 mod ansi_colors_tests {
     use super::{ANSIColors,ESC,Color};
-    #[test]
-    fn new() {
-        assert_eq!(ANSIColors::new(), ANSIColors { colors: Vec::new() });
-    }
-    #[test]
-    fn add() {
-        let mut a = ANSIColors::new();
-        a.add([1, 2, 4]);
-        assert_eq!(a, ANSIColors { colors: Vec::from([1, 2, 4])})
-    }
-    #[test]
-    fn from() {
-        assert_eq!(ANSIColors::from([1, 2, 4]),
-            ANSIColors { colors: vec![1, 2, 4]});
-    }
     #[test]
     fn fmt() {
         let mut a = ANSIColors::new();
@@ -421,9 +433,15 @@ mod ansi_colors_tests {
         let mut a = ANSIColors::new();
         a.add([49, 39]);
         assert_eq!(format!("{a}"), format!("{ESC}[0m"));
+
         let mut a = ANSIColors::new();
         a.add([39, 49]);
         assert_eq!(format!("{a}"), format!("{ESC}[0m"));
+
+        let mut a = ANSIColors::new();
+        a.add([32, 49]);
+        assert_eq!(format!("{a}"), format!("{ESC}[49;32m"));
+
         let mut a = ANSIColors::new();
         a.add([32, 39, 49]);
         assert_eq!(format!("{a}"), format!("{ESC}[0m"));
@@ -437,13 +455,15 @@ mod ansi_colors_tests {
         a.add(Color::Rgb([255, 39, 0]).to_ansi(true));
         assert_eq!(format!("{a}"), format!("{ESC}[48;2;255;39;0;38;2;255;39;0m"));
         a.add(Color::None.to_ansi(false));
-        assert_eq!(format!("{a}"), format!("{ESC}[48;2;255;39;0m"));
+        assert_eq!(format!("{a}"), format!("{ESC}[48;2;255;39;0;39m"));
         a.add(Color::None.to_ansi(true));
         assert_eq!(format!("{a}"), format!("{ESC}[0m"));
         a.add(Color::C256(72).to_ansi(true));
-        assert_eq!(format!("{a}"), format!("{ESC}[48;5;72m"));
+        assert_eq!(format!("{a}"), format!("{ESC}[48;5;72;39m"));
         a.add(Color::C256(12).to_ansi(true));
-        assert_eq!(format!("{a}"), format!("{ESC}[104m"));
+        assert_eq!(format!("{a}"), format!("{ESC}[104;39m"));
+        a.clear();
+        assert_eq!(format!("{a}"), format!(""));
     }
 }
 
@@ -1138,5 +1158,6 @@ mod screen_buffer_test {
         a.set([6, 9], Color::C256(12));
         assert_eq!(a.flush(true),
             format!("\x1b[4B\x1b[6C\x1b[48;5;29;94m{}\x1b[7D\x1b[36B", HALF));
+        assert_eq!(a.flush(true), format!("\x1b[40B"));
     }
 }

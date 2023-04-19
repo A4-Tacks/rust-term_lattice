@@ -18,3 +18,7 @@ Manually expand `EnumVariantEq` to reduce dependencies
 
 # v0.4.1
 Fixed a bug where the output color was changed during optimization of the serialization optimizer, and the serialization optimizer has been refactored
+
+# v0.4.2
+`fill_capacity` changed to use resize
+Modified the output optimization section
